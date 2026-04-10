@@ -1,0 +1,40 @@
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: purchasing_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - purchasing_network
+
+  backend:
+    build: ./backend
+    container_name: purchasing_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - GG_DEALS_API_KEY=${GG_DEALS_API_KEY}
+    depends_on:
+      - mongodb
+    networks:
+      - purchasing_network
+
+  frontend:
+    build: ./frontend/price-power
+    container_name: purchasing_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - purchasing_network
+
+volumes:
+  mongo_data:
+
+networks:
+  purchasing_network:
+    driver: bridge

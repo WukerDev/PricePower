@@ -1,0 +1,27 @@
+{
+  "pl": {
+    "min": 3222.00,
+    "avg": 5500.00,
+    "currency": "PLN"
+  },
+  "us": {
+    "min": 1160.00,
+    "avg": 4200.00,
+    "currency": "USD"
+  },
+  "gb": {
+    "min": 1500.00,
+    "avg": 2800.00,
+    "currency": "GBP"
+  },
+  "de": {
+    "min": 1600.00,
+    "avg": 3000.00,
+    "currency": "EUR"
+  },
+  "fr": {
+    "min": 1766.00,
+    "avg": 2580.00,
+    "currency": "EUR"
+  }
+}
