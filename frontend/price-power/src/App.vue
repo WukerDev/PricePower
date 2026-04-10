@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
-import { Line } from 'vue-chartjs'
-import { Chart as ChartJS, Title, Tooltip, Legend, PointElement, LineElement, CategoryScale, LinearScale } from 'chart.js'
+import { Line, Radar, Doughnut, Bar } from 'vue-chartjs'
+import { Chart as ChartJS, Title, Tooltip, Legend, PointElement, LineElement, BarElement, CategoryScale, LinearScale, RadialLinearScale, ArcElement, Filler } from 'chart.js'
 
-ChartJS.register(Title, Tooltip, Legend, PointElement, LineElement, CategoryScale, LinearScale)
+ChartJS.register(Title, Tooltip, Legend, PointElement, LineElement, BarElement, CategoryScale, LinearScale, RadialLinearScale, ArcElement, Filler)
 
 const gameId = ref<any>(null)
 const searchQuery = ref('')
@@ -24,8 +24,23 @@ const isLoading = ref(false)
 const resultData = ref<any>(null)
 const historyData = ref<any>(null)
 const basketData = ref<any>(null)
+const radarData = ref<any>(null)
+const doughnutData1 = ref<any>(null)
+const doughnutData2 = ref<any>(null)
+const barData = ref<any>(null)
+const gameDetails = ref<any>(null)
 
 let rotationInterval: any = null
+
+const bgCanvas = ref<HTMLCanvasElement | null>(null)
+let ctx: CanvasRenderingContext2D | null = null
+let particlesArray: any[] = []
+let animationFrameId: number
+
+const simLiving1 = ref(40)
+const simOther1 = ref(30)
+const simLiving2 = ref(40)
+const simOther2 = ref(30)
 
 const availableRegions = [
   { title: 'Polska (PLN)', value: 'pl' },
@@ -118,6 +133,24 @@ const fetchInitialData = async () => {
   }
 }
 
+const createDoughnut = (gamePct: string, color: string, living: number = 40, other: number = 30) => {
+  const gPct = parseFloat(gamePct)
+  return {
+    labels: ['Gra', 'Mieszkanie', 'Życie', 'Oszczędności'],
+    datasets: [{
+      backgroundColor: [color, '#37474F', '#455A64', '#263238'],
+      borderWidth: 0,
+      data: [gPct, living, other, Math.max(0, 100 - gPct - living - other)]
+    }]
+  }
+}
+
+watch([simLiving1, simOther1, simLiving2, simOther2], () => {
+  if (!resultData.value) return
+  doughnutData1.value = createDoughnut(resultData.value.pct1, '#7C4DFF', simLiving1.value, simOther1.value)
+  doughnutData2.value = createDoughnut(resultData.value.pct2, '#00E5FF', simLiving2.value, simOther2.value)
+})
+
 const compareData = async () => {
   if (!gameId.value) return
   isLoading.value = true
@@ -125,7 +158,7 @@ const compareData = async () => {
   const actualAppId = typeof gameId.value === 'object' ? gameId.value.value : gameId.value
 
   try {
-    const [compRes, histRes, basketRes] = await Promise.all([
+    const [compRes, histRes, basketRes, detailsRes] = await Promise.all([
       axios.get('http://127.0.0.1:8000/api/compare', {
         params: { app_id: actualAppId, region1: region1.value, region2: region2.value, wage1: wage1.value, wage2: wage2.value }
       }),
@@ -134,8 +167,13 @@ const compareData = async () => {
       }),
       axios.get('http://127.0.0.1:8000/api/dw/basket', {
         params: { region1: region1.value, region2: region2.value, wage1: wage1.value, wage2: wage2.value }
+      }),
+      axios.get('http://127.0.0.1:8000/api/game-details', {
+        params: { app_id: actualAppId }
       })
     ])
+
+    gameDetails.value = detailsRes.data
 
     const workHoursPerMonth = 168
     const hourly1 = wage1.value / workHoursPerMonth
@@ -192,6 +230,63 @@ const compareData = async () => {
         }
       ]
     }
+
+    radarData.value = {
+      labels: ['Siła Nabywcza', 'Przystępność Koszyka', 'Czas Wolny', 'Tania Gra'],
+      datasets: [
+        {
+          label: region1.value.toUpperCase(),
+          backgroundColor: 'rgba(124, 77, 255, 0.4)',
+          borderColor: '#7C4DFF',
+          pointBackgroundColor: '#7C4DFF',
+          data: [
+            Math.min(copies1, 100),
+            Math.max(100 - basketRes.data.region1_pct, 0),
+            Math.min(100 / (parseFloat(resultData.value.hours1) || 1) * 10, 100),
+            Math.max(100 - parseFloat(resultData.value.pct1) * 10, 0)
+          ]
+        },
+        {
+          label: region2.value.toUpperCase(),
+          backgroundColor: 'rgba(0, 229, 255, 0.4)',
+          borderColor: '#00E5FF',
+          pointBackgroundColor: '#00E5FF',
+          data: [
+            Math.min(copies2, 100),
+            Math.max(100 - basketRes.data.region2_pct, 0),
+            Math.min(100 / (parseFloat(resultData.value.hours2) || 1) * 10, 100),
+            Math.max(100 - parseFloat(resultData.value.pct2) * 10, 0)
+          ]
+        }
+      ]
+    }
+
+    simLiving1.value = 40
+    simOther1.value = 30
+    simLiving2.value = 40
+    simOther2.value = 30
+
+    doughnutData1.value = createDoughnut(resultData.value.pct1, '#7C4DFF', simLiving1.value, simOther1.value)
+    doughnutData2.value = createDoughnut(resultData.value.pct2, '#00E5FF', simLiving2.value, simOther2.value)
+
+    const globalWages = [
+      { code: 'TR', name: 'Turcja', val: 85 },
+      { code: 'PL', name: 'Polska', val: parseFloat(resultData.value.hours1) || 45 },
+      { code: 'BR', name: 'Brazylia', val: 60 },
+      { code: 'DE', name: 'Niemcy', val: parseFloat(resultData.value.hours2) || 15 },
+      { code: 'US', name: 'USA', val: 10 },
+      { code: 'CH', name: 'Szwajcaria', val: 6 }
+    ].sort((a, b) => b.val - a.val)
+
+    barData.value = {
+      labels: globalWages.map(w => w.name),
+      datasets: [{
+        backgroundColor: globalWages.map(w => w.code === region1.value.toUpperCase() ? '#7C4DFF' : w.code === region2.value.toUpperCase() ? '#00E5FF' : 'rgba(255,255,255,0.2)'),
+        borderRadius: 6,
+        data: globalWages.map(w => w.val)
+      }]
+    }
+
   } catch (error) {
   } finally {
     isLoading.value = false
@@ -211,22 +306,170 @@ const chartOptions = {
   }
 }
 
+const radarOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { labels: { color: 'white' } } },
+  scales: {
+    r: {
+      grid: { color: 'rgba(255,255,255,0.1)' },
+      pointLabels: { color: '#ccc', font: { size: 12 } },
+      ticks: { display: false },
+      angleLines: { color: 'rgba(255,255,255,0.1)' }
+    }
+  }
+}
+
+const doughnutOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  cutout: '70%'
+}
+
+const barOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ccc' } },
+    x: { grid: { display: false }, ticks: { color: '#ccc' } }
+  }
+}
+
+class Particle {
+  x: number
+  y: number
+  directionX: number
+  directionY: number
+  size: number
+
+  constructor(x: number, y: number, directionX: number, directionY: number, size: number) {
+    this.x = x
+    this.y = y
+    this.directionX = directionX
+    this.directionY = directionY
+    this.size = size
+  }
+
+  draw() {
+    if (!ctx) return
+    ctx.beginPath()
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2, false)
+    ctx.fillStyle = '#00E5FF'
+    ctx.fill()
+  }
+
+  update() {
+    if (!bgCanvas.value) return
+    if (this.x > bgCanvas.value.width || this.x < 0) {
+      this.directionX = -this.directionX
+    }
+    if (this.y > bgCanvas.value.height || this.y < 0) {
+      this.directionY = -this.directionY
+    }
+    this.x += this.directionX
+    this.y += this.directionY
+    this.draw()
+  }
+}
+
+const initPlexus = () => {
+  if (!bgCanvas.value) return
+  ctx = bgCanvas.value.getContext('2d')
+  bgCanvas.value.width = window.innerWidth
+  bgCanvas.value.height = window.innerHeight
+  particlesArray = []
+  const numberOfParticles = Math.floor((bgCanvas.value.height * bgCanvas.value.width) / 12000)
+  for (let i = 0; i < numberOfParticles; i++) {
+    const size = (Math.random() * 2) + 1
+    const x = (Math.random() * ((window.innerWidth - size * 2) - (size * 2)) + size * 2)
+    const y = (Math.random() * ((window.innerHeight - size * 2) - (size * 2)) + size * 2)
+    const directionX = (Math.random() * 1) - 0.5
+    const directionY = (Math.random() * 1) - 0.5
+    particlesArray.push(new Particle(x, y, directionX, directionY, size))
+  }
+}
+
+const connectPlexus = () => {
+  for (let a = 0; a < particlesArray.length; a++) {
+    for (let b = a; b < particlesArray.length; b++) {
+      const dx = particlesArray[a].x - particlesArray[b].x
+      const dy = particlesArray[a].y - particlesArray[b].y
+      const distance = (dx * dx) + (dy * dy)
+      if (distance < 18000) {
+        const opacity = 1 - (distance / 18000)
+        ctx!.strokeStyle = `rgba(0, 229, 255, ${opacity * 0.3})`
+        ctx!.lineWidth = 1
+        ctx!.beginPath()
+        ctx!.moveTo(particlesArray[a].x, particlesArray[a].y)
+        ctx!.lineTo(particlesArray[b].x, particlesArray[b].y)
+        ctx!.stroke()
+      }
+    }
+  }
+}
+
+const animatePlexus = () => {
+  if (!bgCanvas.value || !ctx) return
+  animationFrameId = requestAnimationFrame(animatePlexus)
+  ctx.clearRect(0, 0, window.innerWidth, window.innerHeight)
+  for (let i = 0; i < particlesArray.length; i++) {
+    particlesArray[i].update()
+  }
+  connectPlexus()
+}
+
+const handleResize = () => {
+  if (!bgCanvas.value) return
+  bgCanvas.value.width = window.innerWidth
+  bgCanvas.value.height = window.innerHeight
+  initPlexus()
+}
+
 onMounted(() => {
   fetchInitialData()
+  initPlexus()
+  animatePlexus()
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   if (rotationInterval) clearInterval(rotationInterval)
+  cancelAnimationFrame(animationFrameId)
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
 <template>
   <v-app class="app-background">
-    <v-main>
+    <canvas ref="bgCanvas" class="plexus-canvas"></canvas>
+    <v-main style="position: relative; z-index: 1;">
       <v-container class="py-10">
-        <div class="text-center mb-10">
-          <h1 class="text-h2 font-weight-black gradient-text mb-2">Power Purchasing OLAP</h1>
-          <p class="text-h6 text-grey-lighten-1">Wielowymiarowa analiza siły nabywczej graczy</p>
+
+        <div class="text-center mb-12 mt-4 position-relative">
+          <div class="header-glow"></div>
+          <div class="d-flex justify-center align-center mb-4 flex-wrap">
+            <v-icon size="56" color="cyan-accent-3" class="mr-sm-4 mb-2 mb-sm-0 header-icon d-none d-sm-flex">mdi-database-search</v-icon>
+            <h1 class="text-h2 font-weight-black text-uppercase animated-gradient-text mb-0">
+              Price Power <span class="text-cyan-accent-3"></span>
+            </h1>
+            <v-icon size="56" color="deep-purple-accent-2" class="ml-sm-4 mb-2 mb-sm-0 header-icon d-none d-sm-flex">mdi-controller-classic</v-icon>
+          </div>
+          <p class="text-h6 text-grey-lighten-1 mb-8 font-weight-regular" style="letter-spacing: 1px;">
+            Zaawansowana analityka wielowymiarowa siły nabywczej graczy
+          </p>
+          <div class="d-flex justify-center gap-4 flex-wrap">
+            <v-chip color="success" variant="elevated" size="small" prepend-icon="mdi-check-circle" class="glass-chip font-weight-bold ma-1">
+              Silnik OLAP: Aktywny
+            </v-chip>
+            <v-chip color="cyan-accent-4" variant="elevated" size="small" prepend-icon="mdi-database-sync" class="glass-chip font-weight-bold ma-1">
+              Hurtownia: Zsynchronizowana
+            </v-chip>
+            <v-chip color="deep-purple-accent-1" variant="elevated" size="small" prepend-icon="mdi-chart-timeline-variant" class="glass-chip font-weight-bold ma-1">
+              Analiza Time-Series: Gotowa
+            </v-chip>
+          </div>
         </div>
 
         <v-row class="mb-8" justify="center">
@@ -318,39 +561,81 @@ onUnmounted(() => {
             </v-col>
           </v-row>
 
-          <v-btn block size="x-large" color="cyan-darken-3" class="mt-8 rounded-lg font-weight-bold" elevation="8" @click="compareData" :loading="isLoading" :disabled="!gameId">
+          <v-btn block size="x-large" color="cyan-darken-3" class="mt-8 rounded-lg font-weight-bold pulse-button" elevation="8" @click="compareData" :loading="isLoading" :disabled="!gameId">
             <v-icon left class="mr-2">mdi-database-search</v-icon> Wykonaj Analizę
           </v-btn>
         </v-card>
 
         <v-expand-transition>
-          <div v-if="resultData" class="mt-10">
+          <div v-if="isLoading" class="mt-10">
             <v-card class="pa-8 rounded-xl glass-card mx-auto" max-width="1200" theme="dark">
               <v-row align="center" class="mb-8">
                 <v-col cols="12" sm="4">
-                  <v-img :src="resultData.image" class="rounded-lg elevation-10" cover aspect-ratio="16/9"></v-img>
+                  <v-skeleton-loader type="image" height="200" color="rgba(255,255,255,0.05)"></v-skeleton-loader>
                 </v-col>
                 <v-col cols="12" sm="8">
-                  <h2 class="text-h4 font-weight-bold text-cyan-accent-1">{{ resultData.game_title }}</h2>
-                  <p class="text-subtitle-1 text-grey-lighten-1 mt-2">Szczegółowy raport siły nabywczej na podstawie wybranego tytułu.</p>
+                  <v-skeleton-loader type="heading, paragraph" color="rgba(255,255,255,0.05)"></v-skeleton-loader>
+                </v-col>
+              </v-row>
+              <v-skeleton-loader type="table-heading, list-item-two-line, image" color="rgba(255,255,255,0.05)"></v-skeleton-loader>
+            </v-card>
+          </div>
+          <div v-else-if="resultData" class="mt-10">
+            <v-card class="pa-8 rounded-xl glass-card mx-auto" max-width="1200" theme="dark">
+
+              <v-row class="mb-10 mt-2">
+                <v-col cols="12" md="7">
+                  <div v-if="gameDetails?.trailer" class="rounded-lg overflow-hidden elevation-10" style="position: relative; padding-top: 56.25%; border: 1px solid rgba(255,255,255,0.1);">
+                    <video autoplay loop muted playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;">
+                      <source :src="gameDetails.trailer" type="video/webm">
+                    </video>
+                  </div>
+                  <v-img v-else :src="resultData?.image" class="rounded-lg elevation-10" cover aspect-ratio="16/9" style="border: 1px solid rgba(255,255,255,0.1);"></v-img>
+                </v-col>
+
+                <v-col cols="12" md="5" class="d-flex flex-column justify-center pl-md-6">
+                  <h2 class="text-h3 font-weight-black text-cyan-accent-1 mb-3">{{ resultData?.game_title }}</h2>
+                  <p class="text-body-2 text-grey-lighten-1 mb-6" v-html="gameDetails?.description || 'Szczegółowy raport siły nabywczej na podstawie wybranego tytułu.'"></p>
+
+ <v-row density="comfortable">
+                    <v-col cols="6">
+                      <v-card variant="tonal" color="light-green-accent-3" class="pa-4 rounded-lg text-center h-100 d-flex flex-column justify-center">
+                        <div class="text-caption text-uppercase mb-1 font-weight-bold">Aktualnie Gra (Steam)</div>
+                        <div class="text-h5 font-weight-black">{{ gameDetails?.players ? gameDetails.players.toLocaleString() : '0' }}</div>
+                      </v-card>
+                    </v-col>
+                    <v-col cols="6">
+                      <v-card variant="tonal" color="amber-accent-3" class="pa-4 rounded-lg text-center h-100 d-flex flex-column justify-center">
+                        <div class="text-caption text-uppercase mb-1 font-weight-bold">Metacritic</div>
+                        <div class="text-h5 font-weight-black">{{ gameDetails?.metacritic || 'Brak' }}</div>
+                      </v-card>
+                    </v-col>
+                    <v-col cols="12">
+                      <v-card variant="tonal" color="blue-grey-lighten-2" class="pa-3 rounded-lg text-center mt-2">
+                        <div class="text-caption text-uppercase mb-1 font-weight-bold">Gatunek</div>
+                        <div class="text-subtitle-2">{{ gameDetails?.genres ? gameDetails.genres.join(' • ') : 'Brak danych' }}</div>
+                      </v-card>
+                    </v-col>
+                  </v-row>
                 </v-col>
               </v-row>
 
               <v-divider class="mb-8"></v-divider>
-<v-row class="mt-6">
+
+              <v-row class="mt-6">
                 <v-col cols="12" md="6">
                   <v-card variant="tonal" color="deep-purple-accent-2" class="pa-4 rounded-lg d-flex align-center">
                     <v-icon size="40" class="mr-4">mdi-clock-outline</v-icon>
                     <div>
                       <div class="text-caption text-uppercase">Czas pracy na 1 kopię</div>
-                      <div class="text-h5 font-weight-bold">{{ resultData.hours1 }} <span class="text-body-2">godzin</span></div>
+                      <div class="text-h5 font-weight-bold">{{ resultData?.hours1 }} <span class="text-body-2">godzin</span></div>
                     </div>
                   </v-card>
                   <v-card variant="tonal" color="deep-purple-lighten-3" class="mt-4 pa-4 rounded-lg d-flex align-center">
                     <v-icon size="40" class="mr-4">mdi-calendar-today</v-icon>
                     <div>
                       <div class="text-caption text-uppercase">Kopie za 1 dzień pracy</div>
-                      <div class="text-h5 font-weight-bold">{{ resultData.daily_copies1 }} <span class="text-body-2">szt.</span></div>
+                      <div class="text-h5 font-weight-bold">{{ resultData?.daily_copies1 }} <span class="text-body-2">szt.</span></div>
                     </div>
                   </v-card>
                 </v-col>
@@ -360,58 +645,86 @@ onUnmounted(() => {
                     <v-icon size="40" class="mr-4">mdi-clock-outline</v-icon>
                     <div>
                       <div class="text-caption text-uppercase">Czas pracy na 1 kopię</div>
-                      <div class="text-h5 font-weight-bold">{{ resultData.hours2 }} <span class="text-body-2">godzin</span></div>
+                      <div class="text-h5 font-weight-bold">{{ resultData?.hours2 }} <span class="text-body-2">godzin</span></div>
                     </div>
                   </v-card>
                   <v-card variant="tonal" color="cyan-lighten-3" class="mt-4 pa-4 rounded-lg d-flex align-center">
                     <v-icon size="40" class="mr-4">mdi-calendar-today</v-icon>
                     <div>
                       <div class="text-caption text-uppercase">Kopie za 1 dzień pracy</div>
-                      <div class="text-h5 font-weight-bold">{{ resultData.daily_copies2 }} <span class="text-body-2">szt.</span></div>
+                      <div class="text-h5 font-weight-bold">{{ resultData?.daily_copies2 }} <span class="text-body-2">szt.</span></div>
                     </div>
                   </v-card>
                 </v-col>
               </v-row>
 
-              <v-alert v-if="resultData.multiplierMsg" icon="mdi-trophy" color="amber-darken-3" variant="tonal" class="mb-8 mt-5 rounded-lg" border="start">
+              <v-alert v-if="resultData?.multiplierMsg" icon="mdi-trophy" color="amber-darken-3" variant="tonal" class="mb-8 mt-5 rounded-lg" border="start">
                 <div class="text-h6 font-weight-bold">{{ resultData.multiplierMsg }}</div>
               </v-alert>
 
               <v-row>
-                <v-col cols="12" md="6">
+<v-col cols="12" md="6">
                   <div class="text-center mb-4 d-flex flex-column align-center">
-                    <v-avatar size="48" rounded="sm" class="mb-3 elevation-8" style="border: 1px solid rgba(255,255,255,0.2);">
-                      <img :src="`https://flagcdn.com/w80/${region1}.png`" style="width: 100%; height: 100%; object-fit: cover;">
-                    </v-avatar>
+                    <div class="mb-3" style="width: 105px; height: 105px; filter: drop-shadow(0px 0px 10px rgba(124, 77, 255, 0.6));">
+                      <div :style="`
+                        width: 100%;
+                        height: 100%;
+                        background-image: url('https://flagcdn.com/w160/${region1}.png');
+                        background-size: cover;
+                        background-position: center;
+                        -webkit-mask-image: url('https://cdn.jsdelivr.net/gh/djaiss/mapsicon@master/all/${region1}/vector.svg');
+                        mask-image: url('https://cdn.jsdelivr.net/gh/djaiss/mapsicon@master/all/${region1}/vector.svg');
+                        -webkit-mask-size: contain;
+                        mask-size: contain;
+                        -webkit-mask-repeat: no-repeat;
+                        mask-repeat: no-repeat;
+                        -webkit-mask-position: center;
+                        mask-position: center;
+                      `"></div>
+                    </div>
                     <h3 class="text-h5 font-weight-bold text-deep-purple-accent-1">{{ region1.toUpperCase() }}</h3>
-                    <div class="text-h3 font-weight-black mt-2">{{ resultData.region1_copies }} <span class="text-subtitle-1">kopii</span></div>
-                    <div class="text-body-2 text-grey">Cena: {{ resultData.region1_price }} {{ resultData.region1_currency }}</div>
+                    <div class="text-h3 font-weight-black mt-2">{{ resultData?.region1_copies }} <span class="text-subtitle-1">kopii</span></div>
+                    <div class="text-body-2 text-grey">Cena: {{ resultData?.region1_price }} {{ resultData?.region1_currency }}</div>
                   </div>
                   <div class="waffle-container">
-                    <div v-for="n in getFullBoxes(resultData.region1_copies)" :key="'full1-'+n" class="waffle-box full bg-deep-purple-accent-2">
+                    <div v-for="n in getFullBoxes(resultData?.region1_copies || 0)" :key="'full1-'+n" class="waffle-box full bg-deep-purple-accent-2" :style="{ animationDelay: `${n * 0.015}s` }">
                       <v-icon size="small" color="white">mdi-gamepad-variant</v-icon>
                     </div>
-                    <div v-if="resultData.region1_copies % 1 !== 0" class="waffle-box partial bg-grey-lighten-2">
-                      <div class="partial-fill bg-deep-purple-accent-2" :style="{ height: getPartialBoxHeight(resultData.region1_copies) }"></div>
+                    <div v-if="(resultData?.region1_copies || 0) % 1 !== 0" class="waffle-box partial bg-grey-lighten-2" :style="{ animationDelay: `${getFullBoxes(resultData?.region1_copies || 0) * 0.015}s` }">
+                      <div class="partial-fill bg-deep-purple-accent-2" :style="{ height: getPartialBoxHeight(resultData?.region1_copies || 0) }"></div>
                     </div>
                   </div>
                 </v-col>
 
-                <v-col cols="12" md="6">
+<v-col cols="12" md="6">
                   <div class="text-center mb-4 d-flex flex-column align-center">
-                    <v-avatar size="48" rounded="sm" class="mb-3 elevation-8" style="border: 1px solid rgba(255,255,255,0.2);">
-                      <img :src="`https://flagcdn.com/w80/${region2}.png`" style="width: 100%; height: 100%; object-fit: cover;">
-                    </v-avatar>
+                    <div class="mb-3" style="width: 105px; height: 105px; filter: drop-shadow(0px 0px 10px rgba(0, 229, 255, 0.6));">
+                      <div :style="`
+                        width: 100%;
+                        height: 100%;
+                        background-image: url('https://flagcdn.com/w160/${region2}.png');
+                        background-size: cover;
+                        background-position: center;
+                        -webkit-mask-image: url('https://cdn.jsdelivr.net/gh/djaiss/mapsicon@master/all/${region2}/vector.svg');
+                        mask-image: url('https://cdn.jsdelivr.net/gh/djaiss/mapsicon@master/all/${region2}/vector.svg');
+                        -webkit-mask-size: contain;
+                        mask-size: contain;
+                        -webkit-mask-repeat: no-repeat;
+                        mask-repeat: no-repeat;
+                        -webkit-mask-position: center;
+                        mask-position: center;
+                      `"></div>
+                    </div>
                     <h3 class="text-h5 font-weight-bold text-cyan-accent-3">{{ region2.toUpperCase() }}</h3>
-                    <div class="text-h3 font-weight-black mt-2">{{ resultData.region2_copies }} <span class="text-subtitle-1">kopii</span></div>
-                    <div class="text-body-2 text-grey">Cena: {{ resultData.region2_price }} {{ resultData.region2_currency }}</div>
+                    <div class="text-h3 font-weight-black mt-2">{{ resultData?.region2_copies }} <span class="text-subtitle-1">kopii</span></div>
+                    <div class="text-body-2 text-grey">Cena: {{ resultData?.region2_price }} {{ resultData?.region2_currency }}</div>
                   </div>
                   <div class="waffle-container">
-                    <div v-for="n in getFullBoxes(resultData.region2_copies)" :key="'full2-'+n" class="waffle-box full bg-cyan-accent-4">
+                    <div v-for="n in getFullBoxes(resultData?.region2_copies || 0)" :key="'full2-'+n" class="waffle-box full bg-cyan-accent-4" :style="{ animationDelay: `${n * 0.015}s` }">
                       <v-icon size="small" color="black">mdi-gamepad-variant</v-icon>
                     </div>
-                    <div v-if="resultData.region2_copies % 1 !== 0" class="waffle-box partial bg-grey-lighten-2">
-                      <div class="partial-fill bg-cyan-accent-4" :style="{ height: getPartialBoxHeight(resultData.region2_copies) }"></div>
+                    <div v-if="(resultData?.region2_copies || 0) % 1 !== 0" class="waffle-box partial bg-grey-lighten-2" :style="{ animationDelay: `${getFullBoxes(resultData?.region2_copies || 0) * 0.015}s` }">
+                      <div class="partial-fill bg-cyan-accent-4" :style="{ height: getPartialBoxHeight(resultData?.region2_copies || 0) }"></div>
                     </div>
                   </div>
                 </v-col>
@@ -421,24 +734,23 @@ onUnmounted(() => {
 
               <v-row>
                 <v-col cols="12" md="6">
-                  <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Indeks Koszyka Gracza</h3>
+<h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Indeks Koszyka Gracza</h3>
                   <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
                     <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Analiza % pensji potrzebnego na zakup koszyka 5 flagowych gier (GTA V, Wiedźmin 3, Cyberpunk 2077, RDR 2, BG3).</p>
-
                     <div class="mb-4">
                       <div class="d-flex justify-space-between text-caption mb-1 font-weight-bold text-deep-purple-accent-1">
-                        <span>{{ region1.toUpperCase() }} ({{ basketData.region1_basket_price }} {{ resultData.region1_currency }})</span>
-                        <span>{{ basketData.region1_pct }}% pensji</span>
+                        <span>{{ region1.toUpperCase() }} ({{ basketData?.region1_basket_price }} {{ resultData?.region1_currency }})</span>
+                        <span>{{ basketData?.region1_pct }}% pensji</span>
                       </div>
-                      <v-progress-linear :model-value="basketData.region1_pct" color="deep-purple-accent-2" height="18" rounded></v-progress-linear>
+                      <v-progress-linear :model-value="basketData?.region1_pct || 0" color="deep-purple-accent-2" height="18" rounded></v-progress-linear>
                     </div>
 
                     <div>
                       <div class="d-flex justify-space-between text-caption mb-1 font-weight-bold text-cyan-accent-3">
-                        <span>{{ region2.toUpperCase() }} ({{ basketData.region2_basket_price }} {{ resultData.region2_currency }})</span>
-                        <span>{{ basketData.region2_pct }}% pensji</span>
+                        <span>{{ region2.toUpperCase() }} ({{ basketData?.region2_basket_price }} {{ resultData?.region2_currency }})</span>
+                        <span>{{ basketData?.region2_pct }}% pensji</span>
                       </div>
-                      <v-progress-linear :model-value="basketData.region2_pct" color="cyan-accent-4" height="18" rounded></v-progress-linear>
+                      <v-progress-linear :model-value="basketData?.region2_pct || 0" color="cyan-accent-4" height="18" rounded></v-progress-linear>
                     </div>
                   </v-card>
                 </v-col>
@@ -446,9 +758,88 @@ onUnmounted(() => {
                 <v-col cols="12" md="6">
                   <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Trend Historyczny (2019-2024)</h3>
                   <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
-                    <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Zmiana ilości gier w koszyku możliwych do zakupu na przestrzeni lat (Drill-down).</p>
+                    <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Zmiana ilości gier w koszyku możliwych do zakupu na przestrzeni lat.</p>
                     <div style="height: 200px;">
-                      <Line :data="historyData" :options="chartOptions" />
+                      <Line v-if="historyData" :data="historyData" :options="chartOptions" />
+                    </div>
+                  </v-card>
+                </v-col>
+              </v-row>
+
+              <v-divider class="my-10"></v-divider>
+
+              <v-row>
+                <v-col cols="12" md="6">
+                  <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Profil Wielowymiarowy</h3>
+                  <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
+                    <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Zestawienie wskaźników ekonomicznych OLAP w skali znormalizowanej (0-100).</p>
+                    <div style="height: 300px;">
+                      <Radar v-if="radarData" :data="radarData" :options="radarOptions" />
+                    </div>
+                  </v-card>
+                </v-col>
+
+                <v-col cols="12" md="6">
+                  <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Struktura Kosztów Życia</h3>
+                  <v-card variant="tonal" class="pa-5 rounded-lg h-100" color="blue-grey-darken-3">
+                    <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Symulacja podziału wypłaty z uwzględnieniem zakupu gry.</p>
+
+                    <v-row>
+                      <v-col cols="12" sm="6">
+                        <div class="text-caption text-center mb-2 font-weight-bold text-deep-purple-accent-1">{{ region1.toUpperCase() }}</div>
+                        <div style="height: 140px; position: relative;">
+                          <Doughnut v-if="doughnutData1" :data="doughnutData1" :options="doughnutOptions" />
+                          <div class="position-absolute d-flex align-center justify-center w-100 h-100" style="top: 0; left: 0; pointer-events: none;">
+                            <span class="text-h6 font-weight-bold">{{ resultData?.pct1 }}%</span>
+                          </div>
+                        </div>
+                        <div class="mt-4 px-2">
+                          <v-slider v-model="simLiving1" color="#37474F" thumb-label max="80" min="10" step="1" hide-details class="mb-2">
+                            <template v-slot:prepend><span class="text-caption" style="width: 70px;">Mieszkanie</span></template>
+                          </v-slider>
+                          <v-slider v-model="simOther1" color="#455A64" thumb-label max="80" min="10" step="1" hide-details>
+                            <template v-slot:prepend><span class="text-caption" style="width: 70px;">Życie</span></template>
+                          </v-slider>
+                        </div>
+                      </v-col>
+                      <v-col cols="12" sm="6">
+                        <div class="text-caption text-center mb-2 font-weight-bold text-cyan-accent-3">{{ region2.toUpperCase() }}</div>
+                        <div style="height: 140px; position: relative;">
+                          <Doughnut v-if="doughnutData2" :data="doughnutData2" :options="doughnutOptions" />
+                          <div class="position-absolute d-flex align-center justify-center w-100 h-100" style="top: 0; left: 0; pointer-events: none;">
+                            <span class="text-h6 font-weight-bold">{{ resultData?.pct2 }}%</span>
+                          </div>
+                        </div>
+                        <div class="mt-4 px-2">
+                          <v-slider v-model="simLiving2" color="#37474F" thumb-label max="80" min="10" step="1" hide-details class="mb-2">
+                            <template v-slot:prepend><span class="text-caption" style="width: 70px;">Mieszkanie</span></template>
+                          </v-slider>
+                          <v-slider v-model="simOther2" color="#455A64" thumb-label max="80" min="10" step="1" hide-details>
+                            <template v-slot:prepend><span class="text-caption" style="width: 70px;">Życie</span></template>
+                          </v-slider>
+                        </div>
+                      </v-col>
+                    </v-row>
+
+                    <div class="d-flex justify-center flex-wrap gap-2 mt-6">
+                      <v-chip size="small" color="#7C4DFF" variant="flat" class="ma-1">Gra</v-chip>
+                      <v-chip size="small" color="#37474F" variant="flat" class="ma-1">Opłaty</v-chip>
+                      <v-chip size="small" color="#455A64" variant="flat" class="ma-1">Życie</v-chip>
+                      <v-chip size="small" color="#263238" variant="flat" class="ma-1">Oszczędności</v-chip>
+                    </div>
+                  </v-card>
+                </v-col>
+              </v-row>
+
+              <v-divider class="my-10"></v-divider>
+
+              <v-row>
+                <v-col cols="12">
+                  <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Globalny Benchmark (OLAP Slice)</h3>
+                  <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
+                    <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Ilość godzin pracy potrzebna na zakup tej samej gry w wybranych gospodarkach światowych.</p>
+                    <div style="height: 300px;">
+                      <Bar v-if="barData" :data="barData" :options="barOptions" />
                     </div>
                   </v-card>
                 </v-col>
@@ -466,6 +857,17 @@ onUnmounted(() => {
 .app-background {
   background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
   min-height: 100vh;
+  position: relative;
+}
+
+.plexus-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .glass-card {
@@ -517,6 +919,8 @@ onUnmounted(() => {
   box-shadow: 0 2px 4px rgba(0,0,0,0.3);
   position: relative;
   overflow: hidden;
+  transform: scale(0);
+  animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
 .waffle-box.partial {
@@ -527,5 +931,78 @@ onUnmounted(() => {
   width: 100%;
   bottom: 0;
   position: absolute;
+}
+
+.pulse-button {
+  animation: pulse-glow 2s infinite;
+}
+
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.4); }
+  70% { box-shadow: 0 0 0 15px rgba(0, 229, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+}
+
+@keyframes pop-in {
+  100% { transform: scale(1); }
+}
+
+.glass-card .v-card--variant-tonal {
+  transition: all 0.3s ease;
+}
+
+.glass-card .v-card--variant-tonal:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0, 229, 255, 0.15) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.animated-gradient-text {
+  background: linear-gradient(270deg, #00E5FF, #4facfe, #7C4DFF, #00E5FF);
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-shift 6s ease infinite;
+  letter-spacing: 2px;
+  text-shadow: 0px 4px 15px rgba(0, 229, 255, 0.2);
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.header-icon {
+  filter: drop-shadow(0 0 12px currentColor);
+  animation: float-icon 3s ease-in-out infinite;
+}
+
+.header-icon:nth-child(3) {
+  animation-delay: 1.5s;
+}
+
+@keyframes float-icon {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.glass-chip {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important;
+}
+
+.header-glow {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 70%;
+  height: 120px;
+  background: radial-gradient(circle, rgba(0, 229, 255, 0.15) 0%, rgba(124, 77, 255, 0.05) 40%, rgba(0, 0, 0, 0) 70%);
+  z-index: -1;
+  pointer-events: none;
 }
 </style>

@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 from dotenv import load_dotenv
-import json
 import csv
 from io import StringIO
 from datetime import datetime
@@ -23,14 +22,13 @@ app.add_middleware(
 
 GG_DEALS_API_KEY = os.getenv("GG_DEALS_API_KEY")
 GG_DEALS_URL = "https://api.gg.deals/v1/prices/by-steam-app-id/"
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://mongodb:27017")
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 
-try:
-    client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=2000)
-    db = client.purchasing_dw
-except Exception as e:
-    print(f"Baza danych MongoDB jest niedostępna: {e}")
-    db = None
+# Ustawienie serverSelectionTimeoutMS na 1000ms sprawia, że jeśli Mongo jest wyłączone,
+# aplikacja nie zawiesi się na 20 sekund, tylko od razu pójdzie dalej.
+client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=1000)
+db = client.purchasing_dw
+
 
 class CompareResponse(BaseModel):
     game_title: str
@@ -41,12 +39,15 @@ class CompareResponse(BaseModel):
     region2_currency: str
     region2_copies: float
 
+
 @app.get("/api/dw/history")
 def get_dw_history(region1: str, region2: str):
     base_power = {"pl": 12, "de": 35, "us": 40, "gb": 30, "fr": 32, "au": 38, "se": 45}
+
     def generate_trend(base):
         return [round(base * 0.75, 1), round(base * 0.82, 1), round(base * 0.88, 1), round(base * 1.1, 1),
                 round(base * 0.95, 1), base]
+
     r1_base = base_power.get(region1, 15)
     r2_base = base_power.get(region2, 15)
     return {
@@ -54,6 +55,7 @@ def get_dw_history(region1: str, region2: str):
         "region1_data": generate_trend(r1_base),
         "region2_data": generate_trend(r2_base)
     }
+
 
 @app.get("/api/dw/basket")
 def get_dw_basket(region1: str, region2: str, wage1: float, wage2: float):
@@ -66,6 +68,7 @@ def get_dw_basket(region1: str, region2: str, wage1: float, wage2: float):
         "region2_basket_price": p2,
         "region2_pct": round((p2 / wage2) * 100, 2) if wage2 else 0
     }
+
 
 @app.get("/api/wages")
 def get_wages():
@@ -86,6 +89,7 @@ def get_wages():
     except Exception as e:
         raise HTTPException(status_code=500, detail="Brak dostepu do bazy zarobkow")
 
+
 @app.get("/api/top-games")
 def get_top_games():
     url = "https://steamspy.com/api.php?request=top100in2weeks"
@@ -99,6 +103,7 @@ def get_top_games():
         if price != "0" and price != "":
             games_list.append({"appid": app_id, "name": details.get("name")})
     return {"games": games_list}
+
 
 @app.get("/api/search")
 def search_games(query: str):
@@ -115,33 +120,72 @@ def search_games(query: str):
     except Exception:
         return {"games": []}
 
+
+@app.get("/api/game-details")
+def get_game_details(app_id: str):
+    try:
+        store_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&cc=pl&l=polish"
+        store_resp = requests.get(store_url).json()
+
+        players_url = f"https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid={app_id}"
+        players_resp = requests.get(players_url).json()
+
+        if store_resp and str(app_id) in store_resp and store_resp[str(app_id)]['success']:
+            data = store_resp[str(app_id)]['data']
+            trailer = None
+
+            if 'movies' in data and len(data['movies']) > 0:
+                # Bezpieczne pobieranie wideo – sprawdzamy czy w ogóle istnieje odpowiednie pole
+                first_movie = data['movies'][0]
+                if 'webm' in first_movie and 'max' in first_movie['webm']:
+                    trailer = first_movie['webm']['max']
+                elif 'mp4' in first_movie and 'max' in first_movie['mp4']:
+                    trailer = first_movie['mp4']['max']
+
+            player_count = players_resp.get('response', {}).get('player_count', 0)
+
+            return {
+                "description": data.get('short_description', ''),
+                "trailer": trailer,
+                "metacritic": data.get('metacritic', {}).get('score', 'Brak') if data.get('metacritic') else 'Brak',
+                "release_date": data.get('release_date', {}).get('date', 'Brak'),
+                "genres": [g['description'] for g in data.get('genres', [])] if data.get('genres') else [],
+                "players": player_count
+            }
+        return {"error": "Brak danych z API Steama"}
+    except Exception as e:
+        print(f"Błąd pobierania detali gry ze Steam: {e}")
+        return {"error": str(e)}
+
 def fetch_game_price(app_id: str, region: str):
     if not GG_DEALS_API_KEY:
         raise HTTPException(status_code=500, detail="Brak klucza API.")
     params = {"key": GG_DEALS_API_KEY, "ids": app_id, "region": region}
     response = requests.get(GG_DEALS_URL, params=params)
     if response.status_code == 429:
-        raise HTTPException(status_code=429, detail="Przekroczono limit.")
+        raise HTTPException(status_code=429, detail="Przekroczono limit API GG.deals.")
     data = response.json()
     if not data.get("success"):
-        raise HTTPException(status_code=400, detail="Blad API GG.deals")
+        raise HTTPException(status_code=400, detail="Błąd API GG.deals")
     game_data = data["data"].get(str(app_id))
     if not game_data:
-        raise HTTPException(status_code=404, detail="Brak danych.")
+        raise HTTPException(status_code=404, detail="Brak danych o cenie dla tej gry.")
     prices = game_data.get("prices", {})
     price_str = prices.get("currentRetail") or prices.get("currentKeyshops")
     if not price_str:
-        raise HTTPException(status_code=404, detail="Brak ceny.")
+        raise HTTPException(status_code=404, detail="Gra nie posiada aktualnej ceny w tym regionie.")
     return {
         "title": game_data.get("title"),
         "price": float(price_str),
         "currency": prices.get("currency")
     }
 
+
 @app.get("/api/compare", response_model=CompareResponse)
 async def compare_power(app_id: str, region1: str, region2: str, wage1: float, wage2: float):
     data1 = fetch_game_price(app_id, region1)
     data2 = fetch_game_price(app_id, region2)
+
     copies1 = round(wage1 / data1["price"], 2) if data1["price"] > 0 else 0
     copies2 = round(wage2 / data2["price"], 2) if data2["price"] > 0 else 0
 
@@ -155,15 +199,15 @@ async def compare_power(app_id: str, region1: str, region2: str, wage1: float, w
         "region2_copies": copies2
     }
 
-    if db is not None:
-        try:
-            fact_entry = response_data.copy()
-            fact_entry["app_id"] = app_id
-            fact_entry["region1"] = region1
-            fact_entry["region2"] = region2
-            fact_entry["timestamp"] = datetime.utcnow()
-            await db.fact_economy.insert_one(fact_entry)
-        except Exception as e:
-            print(f"Nie udalo sie zapisac faktu do MongoDB: {e}")
+    # Opcjonalny zapis do Mongo (Hurtownia Danych)
+    try:
+        fact_entry = response_data.copy()
+        fact_entry["app_id"] = app_id
+        fact_entry["region1"] = region1
+        fact_entry["region2"] = region2
+        fact_entry["timestamp"] = datetime.utcnow()
+        await db.fact_economy.insert_one(fact_entry)
+    except Exception as e:
+        print(f"Brak aktywnego połączenia z MongoDB (pomijam zapis do hurtowni).")
 
     return response_data
