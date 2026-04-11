@@ -128,28 +128,42 @@ def get_game_details(app_id: str):
         store_resp = requests.get(store_url).json()
 
         players_url = f"https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid={app_id}"
-        players_resp = requests.get(players_url).json()
+        try:
+            players_resp = requests.get(players_url, timeout=5).json()
+        except Exception:
+            players_resp = {}
 
-        if store_resp and str(app_id) in store_resp and store_resp[str(app_id)]['success']:
-            data = store_resp[str(app_id)]['data']
+        if store_resp and str(app_id) in store_resp and store_resp[str(app_id)].get('success'):
+            data = store_resp[str(app_id)].get('data', {})
             trailer = None
 
-            if 'movies' in data and len(data['movies']) > 0:
-                # Bezpieczne pobieranie wideo – sprawdzamy czy w ogóle istnieje odpowiednie pole
-                first_movie = data['movies'][0]
-                if 'webm' in first_movie and 'max' in first_movie['webm']:
-                    trailer = first_movie['webm']['max']
-                elif 'mp4' in first_movie and 'max' in first_movie['mp4']:
-                    trailer = first_movie['mp4']['max']
+            # BARDZO bezpieczne sprawdzanie zwiastuna
+            movies = data.get('movies', [])
+            if isinstance(movies, list) and len(movies) > 0:
+                first_movie = movies[0]
+                if isinstance(first_movie, dict):
+                    if 'webm' in first_movie and isinstance(first_movie['webm'], dict) and 'max' in first_movie['webm']:
+                        trailer = first_movie['webm']['max']
+                    elif 'mp4' in first_movie and isinstance(first_movie['mp4'], dict) and 'max' in first_movie['mp4']:
+                        trailer = first_movie['mp4']['max']
 
             player_count = players_resp.get('response', {}).get('player_count', 0)
+
+            # Bezpieczne pobieranie metacritic i gatunków
+            metacritic_data = data.get('metacritic')
+            metacritic_score = metacritic_data.get('score') if isinstance(metacritic_data, dict) else 'Brak'
+
+            genres_data = data.get('genres', [])
+            genres_list = [g.get('description') for g in genres_data if
+                           isinstance(g, dict) and 'description' in g] if isinstance(genres_data, list) else []
 
             return {
                 "description": data.get('short_description', ''),
                 "trailer": trailer,
-                "metacritic": data.get('metacritic', {}).get('score', 'Brak') if data.get('metacritic') else 'Brak',
-                "release_date": data.get('release_date', {}).get('date', 'Brak'),
-                "genres": [g['description'] for g in data.get('genres', [])] if data.get('genres') else [],
+                "metacritic": metacritic_score,
+                "release_date": data.get('release_date', {}).get('date', 'Brak') if isinstance(data.get('release_date'),
+                                                                                               dict) else 'Brak',
+                "genres": genres_list,
                 "players": player_count
             }
         return {"error": "Brak danych z API Steama"}
@@ -157,34 +171,73 @@ def get_game_details(app_id: str):
         print(f"Błąd pobierania detali gry ze Steam: {e}")
         return {"error": str(e)}
 
-def fetch_game_price(app_id: str, region: str):
+
+REGION_CURRENCY_MAP = {
+    "pl": "PLN", "de": "EUR", "us": "USD", "gb": "GBP", "fr": "EUR",
+    "au": "AUD", "be": "EUR", "br": "BRL", "ca": "CAD", "ch": "CHF",
+    "dk": "DKK", "es": "EUR", "eu": "EUR", "fi": "EUR", "ie": "EUR",
+    "it": "EUR", "nl": "EUR", "no": "NOK", "se": "SEK"
+}
+
+
+def fetch_game_price(app_id: str, region: str, store_type: str):
     if not GG_DEALS_API_KEY:
         raise HTTPException(status_code=500, detail="Brak klucza API.")
-    params = {"key": GG_DEALS_API_KEY, "ids": app_id, "region": region}
+
+    # Zgodnie z dokumentacją używamy TYLKO parametru 'region' i to małymi literami (np. 'pl', 'de')
+    params = {
+        "key": GG_DEALS_API_KEY,
+        "ids": app_id,
+        "region": region.lower()
+    }
+
     response = requests.get(GG_DEALS_URL, params=params)
+
     if response.status_code == 429:
         raise HTTPException(status_code=429, detail="Przekroczono limit API GG.deals.")
+
     data = response.json()
     if not data.get("success"):
         raise HTTPException(status_code=400, detail="Błąd API GG.deals")
+
     game_data = data["data"].get(str(app_id))
     if not game_data:
         raise HTTPException(status_code=404, detail="Brak danych o cenie dla tej gry.")
-    prices = game_data.get("prices", {})
-    price_str = prices.get("currentRetail") or prices.get("currentKeyshops")
+
+    prices = game_data.get("prices")
+    if not prices:
+        raise HTTPException(status_code=404, detail="Gra nie posiada sekcji z cenami w tym regionie.")
+
+    price_str = None
+
+    # Pobieramy cenę zgodnie z przełącznikiem z frontendu
+    if store_type == "retail":
+        price_str = prices.get("currentRetail")
+        # Fallback, jeśli sklep oficjalny nie ma ceny
+        if not price_str:
+            price_str = prices.get("currentKeyshops")
+    else:
+        # Domyślnie szukamy najtańszego klucza w Keyshopach
+        price_str = prices.get("currentKeyshops")
+        # Fallback, jeśli żaden keyshop nie sprzedaje tej gry
+        if not price_str:
+            price_str = prices.get("currentRetail")
+
     if not price_str:
         raise HTTPException(status_code=404, detail="Gra nie posiada aktualnej ceny w tym regionie.")
+
     return {
         "title": game_data.get("title"),
         "price": float(price_str),
-        "currency": prices.get("currency")
+        "currency": prices.get("currency")  # Zwracamy oryginalną walutę bezpośrednio z API
     }
 
-
 @app.get("/api/compare", response_model=CompareResponse)
-async def compare_power(app_id: str, region1: str, region2: str, wage1: float, wage2: float):
-    data1 = fetch_game_price(app_id, region1)
-    data2 = fetch_game_price(app_id, region2)
+async def compare_power(app_id: str, region1: str, region2: str, wage1: float, wage2: float,
+                        store_type: str = "keyshops"):
+    # Tutaj używamy naszego parsera, który wybierze odp. sklep na podstawie parametru store_type
+    data1 = fetch_game_price(app_id, region1, store_type)
+    data2 = fetch_game_price(app_id, region2, store_type)
 
     copies1 = round(wage1 / data1["price"], 2) if data1["price"] > 0 else 0
     copies2 = round(wage2 / data2["price"], 2) if data2["price"] > 0 else 0
@@ -199,12 +252,12 @@ async def compare_power(app_id: str, region1: str, region2: str, wage1: float, w
         "region2_copies": copies2
     }
 
-    # Opcjonalny zapis do Mongo (Hurtownia Danych)
     try:
         fact_entry = response_data.copy()
         fact_entry["app_id"] = app_id
         fact_entry["region1"] = region1
         fact_entry["region2"] = region2
+        fact_entry["store_type"] = store_type
         fact_entry["timestamp"] = datetime.utcnow()
         await db.fact_economy.insert_one(fact_entry)
     except Exception as e:
