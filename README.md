@@ -90,7 +90,7 @@ erDiagram
     dim_region ||--o{ fact_economy : "filtruje"
     dim_date ||--o{ fact_economy : "filtruje"
     dim_store ||--o{ fact_economy : "filtruje"
-```
+``` 
 
 ```mermaid
 graph TD
