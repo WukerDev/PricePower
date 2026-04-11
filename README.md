@@ -46,6 +46,52 @@ Aplikacja mapuje klasyczne zagadnienia modelowania wielowymiarowego:
 * Docker (do lokalnej bazy danych)
 
 ```mermaid
+erDiagram
+    fact_economy {
+        int fact_id PK
+        int game_id FK
+        string region_id FK
+        int date_id FK
+        int store_id FK
+        float price_local 
+        float wage_net 
+        float purchasing_power_copies 
+    }
+
+    dim_game {
+        int game_id PK 
+        string title
+        string genres
+        int metacritic_score
+    }
+
+    dim_region {
+        string region_id PK 
+        string country_name
+        string currency_code
+        float ppi_index 
+    }
+
+    dim_date {
+        int date_id PK 
+        date full_date
+        int year
+        int month
+        int quarter
+    }
+
+    dim_store {
+        int store_id PK
+        string store_type 
+    }
+
+    dim_game ||--o{ fact_economy : "filtruje"
+    dim_region ||--o{ fact_economy : "filtruje"
+    dim_date ||--o{ fact_economy : "filtruje"
+    dim_store ||--o{ fact_economy : "filtruje"
+```
+
+```mermaid
 graph TD
     U[Użytkownik] -->|Interakcja UI| V(Vue.js Frontend)
     
