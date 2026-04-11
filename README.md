@@ -44,3 +44,64 @@ Aplikacja mapuje klasyczne zagadnienia modelowania wielowymiarowego:
 * Node.js (wersja 18+)
 * Python 3.10+
 * Docker (do lokalnej bazy danych)
+
+```mermaid
+graph TD
+    U[Użytkownik] -->|Interakcja UI| V(Vue.js Frontend)
+    
+    subgraph Aplikacja
+        V -->|Axios REST API| FA(FastAPI Backend)
+        FA -->|Motor Async| DB[(MongoDB: purchasing_dw)]
+    end
+    
+    subgraph Zewnętrzne Źródła Danych
+        FA -->|HTTP GET /v1/prices| GG[GG.deals API]
+        FA -->|HTTP GET /api/appdetails| ST[Steam API]
+        FA -->|HTTP GET CSV| GS[Google Sheets API]
+    end
+    
+    V -.->|Wizualizacja danych| C[Chart.js / Canvas]
+```
+
+```mermaid
+sequenceDiagram
+    actor U as Użytkownik
+    participant F as Vue.js (Frontend)
+    participant B as FastAPI (Backend)
+    participant DB as MongoDB
+    participant GG as GG.deals API
+    participant S as Steam API
+
+    U->>F: Klika "Wykonaj Analizę"
+    
+    par Równoległe zapytania (Promise.all)
+        F->>B: GET /api/compare
+        F->>B: GET /api/dw/history
+        F->>B: GET /api/dw/basket
+        F->>B: GET /api/game-details
+    end
+
+    rect rgb(40, 44, 52)
+    Note over B, GG: Obsługa API Compare
+    B->>GG: Pobierz cenę dla Kraju 1
+    GG-->>B: Cena (Klucz/Retail)
+    B->>GG: Pobierz cenę dla Kraju 2
+    GG-->>B: Cena (Klucz/Retail)
+    B->>DB: Zapisz fakt do hurtowni (fact_economy)
+    B-->>F: Odpowiedź JSON (ceny, waluty)
+    end
+
+    rect rgb(40, 44, 52)
+    Note over B, S: Obsługa API Steam
+    B->>S: Pobierz detale aplikacji (sklep)
+    S-->>B: Dane o grze (zwiastun, opis)
+    B->>S: Pobierz statystyki graczy
+    S-->>B: Aktywni gracze
+    B-->>F: Odpowiedź JSON ze szczegółami
+    end
+
+    F->>F: Przeliczenie walut na docelowe (Frontend)
+    F->>F: Przeliczenie indeksów PPI i wielkości słupków
+    F->>U: Renderowanie wykresów i animacji
+```
+
