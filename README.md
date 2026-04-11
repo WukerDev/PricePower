@@ -45,6 +45,7 @@ Aplikacja mapuje klasyczne zagadnienia modelowania wielowymiarowego:
 * Python 3.10+
 * Docker (do lokalnej bazy danych)
 
+## ⚙️ Wykresy
 ```mermaid
 erDiagram
     fact_economy {
