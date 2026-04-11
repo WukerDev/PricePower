@@ -12,7 +12,7 @@ const isSearching = ref(false)
 const searchResults = ref<any[]>([])
 let searchTimeout: any = null
 const storeType = ref('keyshops')
-
+const isInitialLoading = ref(true)
 const gamesList = ref<any[]>([])
 const featuredGames = ref<any[]>([])
 const region1 = ref('pl')
@@ -124,6 +124,7 @@ const selectFeatured = (appId: string) => {
 }
 
 const fetchInitialData = async () => {
+  isInitialLoading.value = true
   try {
     const [wagesRes, gamesRes] = await Promise.all([
       axios.get('http://127.0.0.1:8000/api/wages'),
@@ -138,6 +139,9 @@ const fetchInitialData = async () => {
     rotateFeaturedGames()
     rotationInterval = setInterval(rotateFeaturedGames, 5000)
   } catch (error) {
+    console.error("Błąd pobierania danych:", error)
+  } finally {
+    isInitialLoading.value = false
   }
 }
 
@@ -333,7 +337,6 @@ const compareData = async () => {
     doughnutData1.value = createDoughnut(resultData.value.pct1, '#7C4DFF', simLiving1.value, simOther1.value)
     doughnutData2.value = createDoughnut(resultData.value.pct2, '#00E5FF', simLiving2.value, simOther2.value)
 
-// Słownik uśrednionej siły nabywczej (USA = 1.0)
     const ppiMap: Record<string, number> = {
       'us': 1.0, 'ch': 0.6, 'de': 1.5, 'gb': 1.2, 'fr': 1.6,
       'au': 1.1, 'be': 1.4, 'br': 6.0, 'ca': 1.1, 'dk': 0.9,
@@ -341,16 +344,12 @@ const compareData = async () => {
       'nl': 1.3, 'no': 0.8, 'pl': 4.5, 'se': 1.0, 'tr': 8.5
     };
 
-    // Obliczamy "wartość bazową" gry w godzinach (odpowiednik dla USA) z dynamicznych danych Kraju 1
     const r1Code = region1.value.toLowerCase();
     const r1PPI = ppiMap[r1Code] || 1.5;
     const baseUSHours = (parseFloat(resultData.value.hours1) || 1) / r1PPI;
 
-    // Pobieramy ładne nazwy wyselekcjonowanych państw
     const r1Title = availableRegions.find(r => r.value === region1.value)?.title.split(' ')[0] || region1.value.toUpperCase();
     const r2Title = availableRegions.find(r => r.value === region2.value)?.title.split(' ')[0] || region2.value.toUpperCase();
-
-    // Generujemy dynamicznie proporcjonalne dane dla benchmarków + aktualne wyniki z OLAP
     const rawWages = [
       { code: 'TR', name: 'Turcja', val: baseUSHours * 8.5 },
       { code: region1.value.toUpperCase(), name: r1Title, val: parseFloat(resultData.value.hours1) || 0 },
@@ -687,7 +686,21 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <v-row class="mb-8" justify="center">
+<v-row class="mb-8" justify="center">
+<template v-if="isInitialLoading">
+            <v-col cols="6" sm="4" md="3" v-for="i in 8" :key="'skel-' + i">
+              <v-card class="rounded-xl overflow-hidden" elevation="12" color="rgba(255,255,255,0.05)">
+                <v-skeleton-loader
+                  type="image"
+                  height="120"
+                  theme="dark"
+                  style="background: transparent;"
+                ></v-skeleton-loader>
+              </v-card>
+            </v-col>
+          </template>
+
+          <template v-else>
             <v-col cols="6" sm="4" md="3" v-for="game in featuredGames" :key="game.value">
               <v-card
                 class="featured-card rounded-xl overflow-hidden cursor-pointer"
@@ -701,7 +714,8 @@ onUnmounted(() => {
                 </v-img>
               </v-card>
             </v-col>
-          </v-row>
+          </template>
+        </v-row>
 
           <v-card class="pa-8 rounded-xl glass-card mx-auto" max-width="1200" theme="dark">
             <v-autocomplete

@@ -23,9 +23,6 @@ app.add_middleware(
 GG_DEALS_API_KEY = os.getenv("GG_DEALS_API_KEY")
 GG_DEALS_URL = "https://api.gg.deals/v1/prices/by-steam-app-id/"
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
-
-# Ustawienie serverSelectionTimeoutMS na 1000ms sprawia, że jeśli Mongo jest wyłączone,
-# aplikacja nie zawiesi się na 20 sekund, tylko od razu pójdzie dalej.
 client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=1000)
 db = client.purchasing_dw
 
@@ -136,8 +133,6 @@ def get_game_details(app_id: str):
         if store_resp and str(app_id) in store_resp and store_resp[str(app_id)].get('success'):
             data = store_resp[str(app_id)].get('data', {})
             trailer = None
-
-            # BARDZO bezpieczne sprawdzanie zwiastuna
             movies = data.get('movies', [])
             if isinstance(movies, list) and len(movies) > 0:
                 first_movie = movies[0]
@@ -148,8 +143,6 @@ def get_game_details(app_id: str):
                         trailer = first_movie['mp4']['max']
 
             player_count = players_resp.get('response', {}).get('player_count', 0)
-
-            # Bezpieczne pobieranie metacritic i gatunków
             metacritic_data = data.get('metacritic')
             metacritic_score = metacritic_data.get('score') if isinstance(metacritic_data, dict) else 'Brak'
 
@@ -183,8 +176,6 @@ REGION_CURRENCY_MAP = {
 def fetch_game_price(app_id: str, region: str, store_type: str):
     if not GG_DEALS_API_KEY:
         raise HTTPException(status_code=500, detail="Brak klucza API.")
-
-    # Zgodnie z dokumentacją używamy TYLKO parametru 'region' i to małymi literami (np. 'pl', 'de')
     params = {
         "key": GG_DEALS_API_KEY,
         "ids": app_id,
@@ -209,17 +200,12 @@ def fetch_game_price(app_id: str, region: str, store_type: str):
         raise HTTPException(status_code=404, detail="Gra nie posiada sekcji z cenami w tym regionie.")
 
     price_str = None
-
-    # Pobieramy cenę zgodnie z przełącznikiem z frontendu
     if store_type == "retail":
         price_str = prices.get("currentRetail")
-        # Fallback, jeśli sklep oficjalny nie ma ceny
         if not price_str:
             price_str = prices.get("currentKeyshops")
     else:
-        # Domyślnie szukamy najtańszego klucza w Keyshopach
         price_str = prices.get("currentKeyshops")
-        # Fallback, jeśli żaden keyshop nie sprzedaje tej gry
         if not price_str:
             price_str = prices.get("currentRetail")
 
@@ -229,13 +215,12 @@ def fetch_game_price(app_id: str, region: str, store_type: str):
     return {
         "title": game_data.get("title"),
         "price": float(price_str),
-        "currency": prices.get("currency")  # Zwracamy oryginalną walutę bezpośrednio z API
+        "currency": prices.get("currency")
     }
 
 @app.get("/api/compare", response_model=CompareResponse)
 async def compare_power(app_id: str, region1: str, region2: str, wage1: float, wage2: float,
                         store_type: str = "keyshops"):
-    # Tutaj używamy naszego parsera, który wybierze odp. sklep na podstawie parametru store_type
     data1 = fetch_game_price(app_id, region1, store_type)
     data2 = fetch_game_price(app_id, region2, store_type)
 
