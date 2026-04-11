@@ -1,4 +1,4 @@
-# Price Power 🎮📊   
+ # Price Power 🎮📊   
 
 Wielowymiarowa aplikacja analityczna służąca do porównywania siły nabywczej graczy w różnych państwach. Projekt został zrealizowany jako praktyczna implementacja koncepcji Hurtowni Danych (Data Warehouse) oraz systemów OLAP.
 
