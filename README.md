@@ -152,3 +152,6 @@ sequenceDiagram
     F->>U: Renderowanie wykresów i animacji
 ```
 
+
+
+
