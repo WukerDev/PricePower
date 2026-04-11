@@ -37,7 +37,7 @@ Aplikacja mapuje klasyczne zagadnienia modelowania wielowymiarowego:
 * **Tabela Faktów (`fact_economy`):** Przechowuje wyliczone miary (cena w regionie 1, cena w regionie 2, wyliczona ilość kopii, różnice walutowe).
 * **Wymiary (Dimensions):** `Dim_Game` (gra, gatunek), `Dim_Region` (kraj, waluta), `Dim_Time` (data zapytania i analizy).
 * **Kostka OLAP:** Możliwość filtrowania danych przez konkretny tytuł i porównywania dowolnych par regionów względem zarobków minimalnych i średnich.
-
+ 
 ## ⚙️ Uruchomienie projektu
 
 ### Wymagania wstępne
