@@ -7,10 +7,43 @@ import { Chart as ChartJS, Title, Tooltip, Legend, PointElement, LineElement, Ba
 ChartJS.register(Title, Tooltip, Legend, PointElement, LineElement, BarElement, CategoryScale, LinearScale, RadialLinearScale, ArcElement, Filler)
 
 const gameId = ref<any>(null)
+const gameHistoryData = ref<any>(null)
+const chartMode = ref('basket')
 const searchQuery = ref('')
 const isSearching = ref(false)
 const searchResults = ref<any[]>([])
+const currentChartData = computed(() => {
+  return chartMode.value === 'basket' ? historyData.value : gameHistoryData.value
+})
 let searchTimeout: any = null
+const simMonths = ref(1)
+const subSimData = ref<any>(null)
+
+const calculateSubSim = async () => {
+  if (!resultData.value) return
+  try {
+    const res = await axios.get('http://127.0.0.1:8000/api/subscription-sim', {
+      params: {
+        region1: region1.value,
+        region2: region2.value,
+        app_price1: resultData.value.region1_price,
+        app_price2: resultData.value.region2_price,
+        months: simMonths.value
+      }
+    })
+    subSimData.value = res.data
+  } catch (error) {
+  }
+}
+
+watch(simMonths, calculateSubSim)
+const customBasket = ref<any[]>([])
+const basketSearchQuery = ref('')
+const basketSearchResults = ref<any[]>([])
+const isBasketSearching = ref(false)
+const customBasketData = ref<any>(null)
+const isCustomBasketLoading = ref(false)
+let basketSearchTimeout: any = null
 const storeType = ref('keyshops')
 const isInitialLoading = ref(true)
 const gamesList = ref<any[]>([])
@@ -184,6 +217,53 @@ const expectedCurrencyMap: Record<string, string> = {
     "it": "EUR", "nl": "EUR", "no": "NOK", "se": "SEK"
 }
 
+watch(basketSearchQuery, (val) => {
+  if (typeof val !== 'string' || !val || val.length < 3) {
+    basketSearchResults.value = []
+    return
+  }
+  if (basketSearchTimeout) clearTimeout(basketSearchTimeout)
+  basketSearchTimeout = setTimeout(async () => {
+    isBasketSearching.value = true
+    try {
+      const response = await axios.get(`http://127.0.0.1:8000/api/search?query=${val}`)
+      basketSearchResults.value = response.data.games
+    } catch (error) {
+    } finally {
+      isBasketSearching.value = false
+    }
+  }, 500)
+})
+
+const addToBasket = (game: any) => {
+  if (game && !customBasket.value.find(g => g.value === game.value)) {
+    customBasket.value.push(game)
+  }
+  basketSearchQuery.value = ''
+}
+
+const removeFromBasket = (appId: string) => {
+  customBasket.value = customBasket.value.filter(g => g.value !== appId)
+  if (customBasket.value.length === 0) {
+    customBasketData.value = null
+  }
+}
+
+const calculateCustomBasket = async () => {
+  if (customBasket.value.length === 0) return
+  isCustomBasketLoading.value = true
+  try {
+    const ids = customBasket.value.map(g => g.value).join(',')
+    const res = await axios.get('http://127.0.0.1:8000/api/custom-basket', {
+      params: { region1: region1.value, region2: region2.value, wage1: wage1.value, wage2: wage2.value, app_ids: ids }
+    })
+    customBasketData.value = res.data
+  } catch (error) {
+  } finally {
+    isCustomBasketLoading.value = false
+  }
+}
+
 const compareData = async () => {
   if (!gameId.value) return
   isLoading.value = true
@@ -191,7 +271,7 @@ const compareData = async () => {
   const actualAppId = typeof gameId.value === 'object' ? gameId.value.value : gameId.value
 
   try {
-    const [compRes, histRes, basketRes, detailsRes] = await Promise.all([
+   const [compRes, histRes, basketRes, detailsRes, gameHistRes] = await Promise.all([
       axios.get('http://127.0.0.1:8000/api/compare', {
         params: {
           app_id: actualAppId,
@@ -210,6 +290,9 @@ const compareData = async () => {
       }),
       axios.get('http://127.0.0.1:8000/api/game-details', {
         params: { app_id: actualAppId }
+      }),
+      axios.get('http://127.0.0.1:8000/api/game-history', {
+        params: { app_id: actualAppId, region1: region1.value, region2: region2.value }
       })
     ])
 
@@ -298,6 +381,27 @@ const compareData = async () => {
         }
       ]
     }
+    gameHistoryData.value = {
+      labels: gameHistRes.data.labels,
+      datasets: [
+        {
+          label: region1.value.toUpperCase(),
+          borderColor: '#7C4DFF',
+          backgroundColor: '#7C4DFF',
+          data: gameHistRes.data.region1_history,
+          tension: 0.4,
+          borderWidth: 3
+        },
+        {
+          label: region2.value.toUpperCase(),
+          borderColor: '#00E5FF',
+          backgroundColor: '#00E5FF',
+          data: gameHistRes.data.region2_history,
+          tension: 0.4,
+          borderWidth: 3
+        }
+      ]
+    }
 
     radarData.value = {
       labels: ['Siła Nabywcza', 'Przystępność Koszyka', 'Czas Wolny', 'Tania Gra'],
@@ -381,7 +485,9 @@ const compareData = async () => {
     }
 
   } catch (error) {
-  } finally {
+  }
+  finally {
+    await calculateSubSim()
     isLoading.value = false
   }
 }
@@ -807,8 +913,7 @@ onUnmounted(() => {
               <v-icon left class="mr-2">mdi-database-search</v-icon> Wykonaj Analizę
             </v-btn>
           </v-card>
-
-          <v-expand-transition>
+<v-expand-transition>
             <div v-if="isLoading" class="mt-10">
               <v-card class="pa-8 rounded-xl glass-card mx-auto" max-width="1200" theme="dark">
                 <v-row align="center" class="mb-8">
@@ -839,7 +944,7 @@ onUnmounted(() => {
                     <h2 class="text-h3 font-weight-black text-cyan-accent-1 mb-3">{{ resultData?.game_title }}</h2>
                     <p class="text-body-2 text-grey-lighten-1 mb-6" v-html="gameDetails?.description || 'Szczegółowy raport siły nabywczej na podstawie wybranego tytułu.'"></p>
 
-   <v-row density="comfortable">
+                    <v-row density="comfortable">
                       <v-col cols="6">
                         <v-card variant="tonal" color="light-green-accent-3" class="pa-4 rounded-lg text-center h-100 d-flex flex-column justify-center">
                           <div class="text-caption text-uppercase mb-1 font-weight-bold">Aktualnie Gra (Steam)</div>
@@ -865,7 +970,7 @@ onUnmounted(() => {
                 <v-divider class="mb-8"></v-divider>
 
                 <v-row>
-  <v-col cols="12" md="6">
+                  <v-col cols="12" md="6">
                     <div class="text-center mb-4 d-flex flex-column align-center">
                       <div class="mb-3" style="width: 105px; height: 105px; filter: drop-shadow(0px 0px 10px rgba(124, 77, 255, 0.6));">
                         <div :style="`
@@ -885,7 +990,7 @@ onUnmounted(() => {
                         `"></div>
                       </div>
                       <h3 class="text-h5 font-weight-bold text-deep-purple-accent-1">{{ region1.toUpperCase() }}</h3>
-<div class="text-h3 font-weight-black mt-2">{{ Number(resultData?.region1_copies).toFixed(1) }} <span class="text-subtitle-1">kopii</span></div>
+                      <div class="text-h3 font-weight-black mt-2">{{ Number(resultData?.region1_copies).toFixed(1) }} <span class="text-subtitle-1">kopii</span></div>
                       <div class="text-body-2 text-grey">Cena: {{ resultData?.region1_price }} {{ resultData?.region1_currency }}</div>
                     </div>
                     <div class="waffle-container">
@@ -898,7 +1003,7 @@ onUnmounted(() => {
                     </div>
                   </v-col>
 
-  <v-col cols="12" md="6">
+                  <v-col cols="12" md="6">
                     <div class="text-center mb-4 d-flex flex-column align-center">
                       <div class="mb-3" style="width: 105px; height: 105px; filter: drop-shadow(0px 0px 10px rgba(0, 229, 255, 0.6));">
                         <div :style="`
@@ -918,7 +1023,7 @@ onUnmounted(() => {
                         `"></div>
                       </div>
                       <h3 class="text-h5 font-weight-bold text-cyan-accent-3">{{ region2.toUpperCase() }}</h3>
-<div class="text-h3 font-weight-black mt-2">{{ Number(resultData?.region2_copies).toFixed(1) }} <span class="text-subtitle-1">kopii</span></div>
+                      <div class="text-h3 font-weight-black mt-2">{{ Number(resultData?.region2_copies).toFixed(1) }} <span class="text-subtitle-1">kopii</span></div>
                       <div class="text-body-2 text-grey">Cena: {{ resultData?.region2_price }} {{ resultData?.region2_currency }}</div>
                     </div>
                     <div class="waffle-container">
@@ -931,6 +1036,7 @@ onUnmounted(() => {
                     </div>
                   </v-col>
                 </v-row>
+
                 <v-row class="mt-6">
                   <v-col cols="12" md="6">
                     <v-card variant="tonal" color="deep-purple-accent-2" class="pa-4 rounded-lg d-flex align-center">
@@ -970,12 +1076,82 @@ onUnmounted(() => {
                 <v-alert v-if="resultData?.multiplierMsg" icon="mdi-trophy" color="amber-darken-3" variant="tonal" class="mb-8 mt-5 rounded-lg" border="start">
                   <div class="text-h6 font-weight-bold">{{ resultData.multiplierMsg }}</div>
                 </v-alert>
+
+                <v-divider class="my-10"></v-divider>
+
+                <v-row>
+                  <v-col cols="12">
+                    <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Twój Własny Koszyk Gier</h3>
+                    <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
+                      <v-autocomplete
+                        v-model:search="basketSearchQuery"
+                        :items="basketSearchQuery && basketSearchResults.length > 0 ? basketSearchResults : gamesList"
+                        item-title="title"
+                        item-value="value"
+                        :loading="isBasketSearching"
+                        label="Wyszukaj grę do koszyka..."
+                        variant="outlined"
+                        color="deep-purple-accent-1"
+                        bg-color="rgba(0,0,0,0.4)"
+                        prepend-inner-icon="mdi-cart-plus"
+                        hide-no-data
+                        return-object
+                        @update:modelValue="addToBasket"
+                      ></v-autocomplete>
+
+                      <div class="d-flex flex-wrap gap-2 mb-6" v-if="customBasket.length > 0">
+                        <v-chip
+                          v-for="game in customBasket"
+                          :key="game.value"
+                          closable
+                          @click:close="removeFromBasket(game.value)"
+                          color="cyan-accent-3"
+                          variant="elevated"
+                          class="ma-1 text-black font-weight-bold"
+                        >
+                          {{ game.title }}
+                        </v-chip>
+                      </div>
+
+                      <v-btn
+                        block
+                        color="deep-purple-accent-2"
+                        @click="calculateCustomBasket"
+                        :loading="isCustomBasketLoading"
+                        :disabled="customBasket.length === 0"
+                        class="mb-6 font-weight-bold"
+                      >
+                        Przelicz Własny Koszyk
+                      </v-btn>
+
+                      <div v-if="customBasketData">
+                        <v-row>
+                          <v-col cols="12" sm="6">
+                            <div class="d-flex justify-space-between text-caption mb-1 font-weight-bold text-deep-purple-accent-1">
+                              <span>{{ region1.toUpperCase() }} ({{ customBasketData.region1_basket_price }} {{ resultData?.region1_currency }})</span>
+                              <span>{{ customBasketData.region1_pct }}% pensji</span>
+                            </div>
+                            <v-progress-linear :model-value="customBasketData.region1_pct" color="deep-purple-accent-2" height="18" rounded></v-progress-linear>
+                          </v-col>
+                          <v-col cols="12" sm="6">
+                            <div class="d-flex justify-space-between text-caption mb-1 font-weight-bold text-cyan-accent-3">
+                              <span>{{ region2.toUpperCase() }} ({{ customBasketData.region2_basket_price }} {{ resultData?.region2_currency }})</span>
+                              <span>{{ customBasketData.region2_pct }}% pensji</span>
+                            </div>
+                            <v-progress-linear :model-value="customBasketData.region2_pct" color="cyan-accent-4" height="18" rounded></v-progress-linear>
+                          </v-col>
+                        </v-row>
+                      </div>
+                    </v-card>
+                  </v-col>
+                </v-row>
+
                 <v-divider class="my-10"></v-divider>
 
                 <v-row>
                   <v-col cols="12" md="6">
-  <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Indeks Koszyka Gracza</h3>
-                    <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
+                    <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Indeks Koszyka Gracza</h3>
+                    <v-card variant="tonal" class="pa-5 rounded-lg h-100" color="blue-grey-darken-3">
                       <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Analiza % pensji potrzebnego na zakup koszyka 5 flagowych gier (GTA V, Wiedźmin 3, Cyberpunk 2077, RDR 2, BG3).</p>
                       <div class="mb-4">
                         <div class="d-flex justify-space-between text-caption mb-1 font-weight-bold text-deep-purple-accent-1">
@@ -996,12 +1172,87 @@ onUnmounted(() => {
                   </v-col>
 
                   <v-col cols="12" md="6">
-                    <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Trend Historyczny (2019-2024)</h3>
-                    <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
-                      <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Zmiana ilości gier w koszyku możliwych do zakupu na przestrzeni lat.</p>
-                      <div style="height: 200px;">
-                        <Line v-if="historyData" :data="historyData" :options="chartOptions" />
+                    <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Analiza Historyczna</h3>
+                    <v-card variant="tonal" class="pa-5 rounded-lg h-100" color="blue-grey-darken-3">
+                      <div class="d-flex justify-center mb-6">
+                        <v-btn-toggle v-model="chartMode" color="amber-accent-2" rounded="pill" mandatory group density="compact">
+                          <v-btn value="basket" class="px-4 text-caption">Koszyk (Lata)</v-btn>
+                          <v-btn value="game" class="px-4 text-caption">Wybrana Gra (Miesiące)</v-btn>
+                        </v-btn-toggle>
                       </div>
+                      <div style="height: 200px;">
+                        <Line v-if="currentChartData" :data="currentChartData" :options="chartOptions" />
+                      </div>
+                    </v-card>
+                  </v-col>
+                </v-row>
+
+                <v-divider class="my-10"></v-divider>
+
+                <v-row>
+                  <v-col cols="12">
+                    <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Symulator Kosztu Alternatywnego (Zakup vs Abonament)</h3>
+                    <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
+                      <p class="text-body-2 text-grey-lighten-1 mb-6 text-center">Sprawdź, czy przy przewidywanym czasie gry bardziej opłaca się kupić grę, czy wykupić subskrypcję w danym regionie.</p>
+
+                      <div class="px-md-10 mb-8">
+                        <div class="d-flex justify-space-between text-caption font-weight-bold mb-2">
+                          <span>1 miesiąc</span>
+                          <span class="text-h6 text-amber-accent-2">{{ simMonths }} mies. gry</span>
+                          <span>12 miesięcy</span>
+                        </div>
+                        <v-slider
+                          v-model="simMonths"
+                          color="amber-accent-2"
+                          track-color="rgba(255,255,255,0.1)"
+                          min="1"
+                          max="12"
+                          step="1"
+                          hide-details
+                        ></v-slider>
+                      </div>
+
+                      <v-row v-if="subSimData">
+                        <v-col cols="12" sm="6">
+                          <v-card class="pa-4 text-center rounded-lg border" :style="{ borderColor: subSimData.buy_better1 ? '#00E676' : '#FF1744', backgroundColor: 'rgba(0,0,0,0.2)' }">
+                            <h4 class="text-subtitle-1 font-weight-bold text-deep-purple-accent-1 mb-2">{{ region1.toUpperCase() }}</h4>
+                            <div class="d-flex justify-space-around my-4">
+                              <div>
+                                <div class="text-caption text-grey">Zakup Gry</div>
+                                <div class="text-h6 font-weight-bold">{{ resultData.region1_price }} {{ resultData.region1_currency }}</div>
+                              </div>
+                              <div>
+                                <div class="text-caption text-grey">Abonament ({{ simMonths }}m)</div>
+                                <div class="text-h6 font-weight-bold">{{ subSimData.sub_cost1 }} {{ resultData.region1_currency }}</div>
+                              </div>
+                            </div>
+                            <v-chip :color="subSimData.buy_better1 ? 'success' : 'error'" variant="flat" size="large" class="font-weight-bold text-uppercase mt-2">
+                              <v-icon start>{{ subSimData.buy_better1 ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
+                              {{ subSimData.buy_better1 ? 'Zakup opłacalny' : 'Zostań przy abonamencie' }}
+                            </v-chip>
+                          </v-card>
+                        </v-col>
+
+                        <v-col cols="12" sm="6">
+                          <v-card class="pa-4 text-center rounded-lg border" :style="{ borderColor: subSimData.buy_better2 ? '#00E676' : '#FF1744', backgroundColor: 'rgba(0,0,0,0.2)' }">
+                            <h4 class="text-subtitle-1 font-weight-bold text-cyan-accent-3 mb-2">{{ region2.toUpperCase() }}</h4>
+                            <div class="d-flex justify-space-around my-4">
+                              <div>
+                                <div class="text-caption text-grey">Zakup Gry</div>
+                                <div class="text-h6 font-weight-bold">{{ resultData.region2_price }} {{ resultData.region2_currency }}</div>
+                              </div>
+                              <div>
+                                <div class="text-caption text-grey">Abonament ({{ simMonths }}m)</div>
+                                <div class="text-h6 font-weight-bold">{{ subSimData.sub_cost2 }} {{ resultData.region2_currency }}</div>
+                              </div>
+                            </div>
+                            <v-chip :color="subSimData.buy_better2 ? 'success' : 'error'" variant="flat" size="large" class="font-weight-bold text-uppercase mt-2">
+                              <v-icon start>{{ subSimData.buy_better2 ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
+                              {{ subSimData.buy_better2 ? 'Zakup opłacalny' : 'Zostań przy abonamencie' }}
+                            </v-chip>
+                          </v-card>
+                        </v-col>
+                      </v-row>
                     </v-card>
                   </v-col>
                 </v-row>
@@ -1011,7 +1262,7 @@ onUnmounted(() => {
                 <v-row>
                   <v-col cols="12" md="6">
                     <h3 class="text-h5 font-weight-bold mb-6 text-center text-amber-accent-2">Profil Wielowymiarowy</h3>
-                    <v-card variant="tonal" class="pa-5 rounded-lg" color="blue-grey-darken-3">
+                    <v-card variant="tonal" class="pa-5 rounded-lg h-100" color="blue-grey-darken-3">
                       <p class="text-body-2 text-grey-lighten-1 mb-4 text-center">Zestawienie wskaźników ekonomicznych OLAP w skali znormalizowanej (0-100).</p>
                       <div style="height: 300px;">
                         <Radar v-if="radarData" :data="radarData" :options="radarOptions" />
@@ -1088,6 +1339,7 @@ onUnmounted(() => {
               </v-card>
             </div>
           </v-expand-transition>
+
         </v-container>
       </v-main>
     </v-app>

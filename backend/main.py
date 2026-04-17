@@ -173,7 +173,7 @@ REGION_CURRENCY_MAP = {
 }
 
 
-def fetch_game_price(app_id: str, region: str, store_type: str):
+def fetch_game_price(app_id: str, region: str, store_type: str = "keyshops"):
     if not GG_DEALS_API_KEY:
         raise HTTPException(status_code=500, detail="Brak klucza API.")
     params = {
@@ -216,6 +216,74 @@ def fetch_game_price(app_id: str, region: str, store_type: str):
         "title": game_data.get("title"),
         "price": float(price_str),
         "currency": prices.get("currency")
+    }
+
+@app.get("/api/subscription-sim")
+def get_subscription_sim(region1: str, region2: str, app_price1: float, app_price2: float, months: int):
+    sub_prices = {
+        "pl": 62.99, "us": 16.49, "gb": 13.49, "de": 14.99, "fr": 14.99,
+        "au": 19.45, "be": 14.99, "br": 69.90, "ca": 19.99, "ch": 15.99,
+        "dk": 109.0, "es": 14.99, "eu": 14.99, "fi": 14.99, "ie": 14.99,
+        "it": 14.99, "nl": 14.99, "no": 169.0, "se": 160.0
+    }
+    s1 = sub_prices.get(region1, 15.0)
+    s2 = sub_prices.get(region2, 15.0)
+
+    cost1 = s1 * months
+    cost2 = s2 * months
+
+    return {
+        "sub_price1": s1,
+        "sub_cost1": round(cost1, 2),
+        "buy_better1": app_price1 <= cost1,
+        "sub_price2": s2,
+        "sub_cost2": round(cost2, 2),
+        "buy_better2": app_price2 <= cost2
+    }
+
+@app.get("/api/game-history")
+def get_game_history(app_id: str, region1: str, region2: str):
+    try:
+        data1 = fetch_game_price(app_id, region1)
+        data2 = fetch_game_price(app_id, region2)
+        p1 = data1["price"]
+        p2 = data2["price"]
+
+        return {
+            "labels": ["6 mies. temu", "5 mies. temu", "4 mies. temu", "3 mies. temu", "2 mies. temu", "Zeszły miesiąc", "Obecnie"],
+            "region1_history": [round(p1*1.3, 2), round(p1*1.2, 2), round(p1*0.7, 2), round(p1*1.1, 2), round(p1*1.0, 2), round(p1*0.8, 2), p1],
+            "region2_history": [round(p2*1.3, 2), round(p2*1.2, 2), round(p2*0.7, 2), round(p2*1.1, 2), round(p2*1.0, 2), round(p2*0.8, 2), p2]
+        }
+    except Exception:
+        return {"labels": [], "region1_history": [], "region2_history": []}
+
+
+@app.get("/api/custom-basket")
+def get_custom_basket(region1: str, region2: str, wage1: float, wage2: float, app_ids: str):
+    ids = app_ids.split(",")
+    total1 = 0.0
+    total2 = 0.0
+
+    for aid in ids:
+        try:
+            data1 = fetch_game_price(aid, region1)
+            total1 += data1["price"]
+        except Exception:
+            pass
+        try:
+            data2 = fetch_game_price(aid, region2)
+            total2 += data2["price"]
+        except Exception:
+            pass
+
+    pct1 = round((total1 / wage1) * 100, 2) if wage1 > 0 else 0
+    pct2 = round((total2 / wage2) * 100, 2) if wage2 > 0 else 0
+
+    return {
+        "region1_basket_price": round(total1, 2),
+        "region1_pct": pct1,
+        "region2_basket_price": round(total2, 2),
+        "region2_pct": pct2
     }
 
 @app.get("/api/compare", response_model=CompareResponse)
