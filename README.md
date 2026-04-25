@@ -1,5 +1,20 @@
  # Price Power 🎮📊   
 
+ ## Twórcy
+Krystian Twarowski - Project Manager, Lead PR
+
+Wiktor Kozakowski - Software Architect, Lead Fullstack Developer, Data Analist
+
+Sebastian Mrowiński - Lead Frontend Developer
+
+Jakub Klesiński - UI/UX Developer, Frontend Developer
+
+Władysław Liegmanowski - Code Reviewer, Lead QA
+
+Maciej Żelazkiewicz - Data Analist, Backend Developer
+
+## Opis
+
 Wielowymiarowa aplikacja analityczna służąca do porównywania siły nabywczej graczy w różnych państwach. Projekt został zrealizowany jako praktyczna implementacja koncepcji Hurtowni Danych (Data Warehouse) oraz systemów OLAP.
 
 ## 🚀 Główne funkcjonalności
