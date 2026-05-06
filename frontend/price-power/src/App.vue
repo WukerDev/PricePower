@@ -178,14 +178,37 @@ const fetchInitialData = async () => {
   }
 }
 
-const createDoughnut = (gamePct: string, color: string, living: number = 40, other: number = 30) => {
+const createDoughnut = (
+  gamePct: string,
+  color: string,
+  living: number = 40,
+  other: number = 30
+) => {
   const gPct = parseFloat(gamePct)
+
   return {
     labels: ['Gra', 'Mieszkanie', 'Życie', 'Oszczędności'],
     datasets: [{
-      backgroundColor: [color, '#37474F', '#455A64', '#263238'],
-      borderWidth: 0,
-      data: [gPct, living, other, Math.max(0, 100 - gPct - living - other)]
+      backgroundColor: [
+        color,        // gra
+        '#06B6D4',    // mieszkanie
+        '#F59E0B',    // życie
+        '#10B981'     // oszczędności
+      ],
+      borderColor: [
+        '#111827',
+        '#111827',
+        '#111827',
+        '#111827'
+      ],
+      borderWidth: 3,
+      hoverOffset: 14,
+      data: [
+        gPct,
+        living,
+        other,
+        Math.max(0, 100 - gPct - living - other)
+      ]
     }]
   }
 }
@@ -478,7 +501,16 @@ const compareData = async () => {
     barData.value = {
       labels: uniqueWages.map(w => w.name),
       datasets: [{
-        backgroundColor: uniqueWages.map(w => w.code === region1.value.toUpperCase() ? '#7C4DFF' : w.code === region2.value.toUpperCase() ? '#00E5FF' : 'rgba(255,255,255,0.2)'),
+        backgroundColor: [
+  '#FF9800',
+  '#00C853',
+  '#7C4DFF',
+  '#00E5FF',
+  '#FF5252',
+  '#FFD600',
+  '#FF4081',
+  '#40C4FF'
+],
         borderRadius: 6,
         data: uniqueWages.map(w => Number(w.val.toFixed(1)))
       }]
@@ -1281,15 +1313,23 @@ onUnmounted(() => {
                           <div style="height: 140px; position: relative;">
                             <Doughnut v-if="doughnutData1" :data="doughnutData1" :options="doughnutOptions" />
                             <div class="position-absolute d-flex align-center justify-center w-100 h-100" style="top: 0; left: 0; pointer-events: none;">
-                              <span class="text-h6 font-weight-bold">{{ resultData?.pct1 }}%</span>
+                              <span
+  class="text-h5 font-weight-black"
+  style="color: #f1f1f1; text-shadow: 0 0 10px rgb(0, 0, 0);"
+>
+  {{ resultData?.pct1 }}%
+</span>
                             </div>
                           </div>
                           <div class="mt-4 px-2">
-                            <v-slider v-model="simLiving1" color="#37474F" thumb-label max="80" min="10" step="1" hide-details class="mb-2">
-                              <template v-slot:prepend><span class="text-caption" style="width: 70px;">Mieszkanie</span></template>
+                            <v-slider v-model="simLiving1" ccolor="#ddebc3" thumb-label max="80" min="10" step="1" hide-details class="mb-2">
+                              <template v-slot:prepend><span  class="text-caption font-weight-bold"  style="width: 70px; color: #ddebc3;">Mieszkanie</span></template>
                             </v-slider>
-                            <v-slider v-model="simOther1" color="#455A64" thumb-label max="80" min="10" step="1" hide-details>
-                              <template v-slot:prepend><span class="text-caption" style="width: 70px;">Życie</span></template>
+                            <v-slider v-model="simOther1" ccolor="#ddebc3" thumb-label max="80" min="10" step="1" hide-details>
+                              <template v-slot:prepend><span
+  class="text-caption font-weight-bold"
+  style="width: 70px; color: #ddebc3;"
+>Życie</span></template>
                             </v-slider>
                           </div>
                         </v-col>
@@ -1298,15 +1338,26 @@ onUnmounted(() => {
                           <div style="height: 140px; position: relative;">
                             <Doughnut v-if="doughnutData2" :data="doughnutData2" :options="doughnutOptions" />
                             <div class="position-absolute d-flex align-center justify-center w-100 h-100" style="top: 0; left: 0; pointer-events: none;">
-                              <span class="text-h6 font-weight-bold">{{ resultData?.pct2 }}%</span>
+                              <span
+  class="text-h5 font-weight-black"
+  style="color: #f1f1f1; text-shadow: 0 0 10px rgb(0, 0, 0);"
+>
+  {{ resultData?.pct2 }}%
+</span>
                             </div>
                           </div>
                           <div class="mt-4 px-2">
-                            <v-slider v-model="simLiving2" color="#37474F" thumb-label max="80" min="10" step="1" hide-details class="mb-2">
-                              <template v-slot:prepend><span class="text-caption" style="width: 70px;">Mieszkanie</span></template>
+                            <v-slider v-model="simLiving2" ccolor="#ddebc3" thumb-label max="80" min="10" step="1" hide-details class="mb-2">
+                              <template v-slot:prepend><span
+  class="text-caption font-weight-bold"
+  style="width: 70px; color: #ddebc3;"
+>Mieszkanie</span></template>
                             </v-slider>
-                            <v-slider v-model="simOther2" color="#455A64" thumb-label max="80" min="10" step="1" hide-details>
-                              <template v-slot:prepend><span class="text-caption" style="width: 70px;">Życie</span></template>
+                            <v-slider v-model="simOther2" ccolor="#ddebc3" thumb-label max="80" min="10" step="1" hide-details>
+                              <template v-slot:prepend><span
+  class="text-caption font-weight-bold"
+  style="width: 70px; color: #ddebc3;"
+>Życie</span></template>
                             </v-slider>
                           </div>
                         </v-col>
@@ -1314,9 +1365,9 @@ onUnmounted(() => {
 
                       <div class="d-flex justify-center flex-wrap gap-2 mt-6">
                         <v-chip size="small" color="#7C4DFF" variant="flat" class="ma-1">Gra</v-chip>
-                        <v-chip size="small" color="#37474F" variant="flat" class="ma-1">Opłaty</v-chip>
-                        <v-chip size="small" color="#455A64" variant="flat" class="ma-1">Życie</v-chip>
-                        <v-chip size="small" color="#263238" variant="flat" class="ma-1">Oszczędności</v-chip>
+                        <v-chip size="small" color="#06B6D4" variant="flat" class="ma-1">Opłaty</v-chip>
+                        <v-chip size="small" color="#F59E0B" variant="flat" class="ma-1">Życie</v-chip>
+                        <v-chip size="small" color="#10B981" variant="flat" class="ma-1">Oszczędności</v-chip>
                       </div>
                     </v-card>
                   </v-col>
